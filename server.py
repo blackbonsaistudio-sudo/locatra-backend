@@ -16,6 +16,7 @@ import base64
 from seed_data import FREE_PLACES, PREMIUM_UNESCO_PLACES
 from seed_beaches import BLUE_FLAG_BEACHES
 from seed_hidden_gems import HIDDEN_GEMS
+from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -870,7 +871,7 @@ async def delete_review(place_id: str, review_id: str, request: Request):
 
 @api_router.post("/places/{place_id}/photos")
 async def upload_photo(place_id: str, photo_data: PhotoUpload, request: Request):
-    """Upload a photo to a place (base64 encoded)"""
+    """Upload a photo to a place (base64 encoded) with AI content moderation"""
     user = await get_current_user(request)
     
     place = await db.places.find_one({"place_id": place_id})
@@ -887,6 +888,36 @@ async def upload_photo(place_id: str, photo_data: PhotoUpload, request: Request)
         base64.b64decode(photo_str)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 image")
+    
+    # AI Content Moderation using OpenAI Vision
+    try:
+        llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+        if llm_key:
+            moderation_chat = LlmChat(
+                api_key=llm_key,
+                session_id=f"moderation-{uuid.uuid4()}",
+                system_message="You are a strict content moderation system. Analyze images and respond with ONLY 'SAFE' or 'BLOCKED: <reason>'. Block any image containing: nudity, sexual content, graphic violence, gore, hate symbols, drug use, weapons aimed at people, or any other inappropriate/offensive content. Be strict - if in doubt, block it."
+            ).with_model("openai", "gpt-4o-mini")
+            
+            image_content = ImageContent(image_base64=photo_str)
+            moderation_message = UserMessage(
+                text="Analyze this image for content moderation. Is it safe for a family-friendly travel/tourism app? Respond with ONLY 'SAFE' or 'BLOCKED: <reason>'.",
+                file_contents=[image_content]
+            )
+            moderation_result = await moderation_chat.send_message(moderation_message)
+            
+            logger.info(f"Image moderation result: {moderation_result}")
+            
+            if moderation_result and "BLOCKED" in moderation_result.upper():
+                reason = moderation_result.replace("BLOCKED:", "").replace("BLOCKED", "").strip()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Photo rejected: {reason or 'Content violates community guidelines'}"
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Image moderation check failed (allowing upload): {e}")
     
     photo_id = str(uuid.uuid4())
     
