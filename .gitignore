@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+places_export*.json
+users_export*.json
+seed_800*.py
+seed_final*.py
+seed_images.py
+*.log
