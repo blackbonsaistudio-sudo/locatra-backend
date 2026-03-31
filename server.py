@@ -98,6 +98,7 @@ class Place(BaseModel):
     rejection_reason: Optional[str] = None
     is_premium: bool = False
     is_unesco: bool = False
+    continent: Optional[str] = None
     # Category-specific fields
     best_season: Optional[str] = None
     difficulty: Optional[str] = None  # easy, moderate, hard
@@ -158,6 +159,15 @@ class SubscriptionRequest(BaseModel):
     plan: str = "monthly"  # currently only monthly
 
 # ===================== AUTH HELPERS =====================
+
+def mask_user_name(full_name: str) -> str:
+    """Mask surname for privacy: 'John Smith' -> 'John *******'"""
+    if not full_name:
+        return "*******"
+    parts = full_name.strip().split()
+    if len(parts) <= 1:
+        return parts[0] if parts else "*******"
+    return f"{parts[0]} *******"
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -576,6 +586,27 @@ async def get_places(
     places = await db.places.find(query, {"_id": 0}).limit(limit).to_list(limit)
     return places
 
+@api_router.get("/places/markers/light")
+async def get_places_markers():
+    """Lightweight endpoint returning only fields needed for map markers.
+    Returns ~50KB instead of ~2.7MB for faster map loading."""
+    projection = {
+        "_id": 0,
+        "place_id": 1,
+        "name": 1,
+        "category": 1,
+        "latitude": 1,
+        "longitude": 1,
+        "country": 1,
+        "country_code": 1,
+        "rating": 1,
+        "continent": 1,
+        "is_unesco": 1,
+        "image_url": 1,
+    }
+    places = await db.places.find({"status": "approved"}, projection).to_list(5000)
+    return places
+
 @api_router.get("/places/{place_id}")
 async def get_place(place_id: str):
     place = await db.places.find_one({"place_id": place_id}, {"_id": 0})
@@ -720,16 +751,32 @@ async def get_admin_stats(request: Request):
 # ===================== REVIEWS ENDPOINTS =====================
 
 @api_router.get("/places/{place_id}/reviews")
-async def get_reviews(place_id: str, limit: int = 50):
-    """Get reviews for a place"""
+async def get_reviews(place_id: str, limit: int = 50, request: Request = None):
+    """Get reviews for a place - surnames masked for privacy"""
     place = await db.places.find_one({"place_id": place_id})
     if not place:
         raise HTTPException(status_code=404, detail="Place not found")
+    
+    # Get current user if authenticated (to show full name for own reviews)
+    current_user = None
+    try:
+        if request:
+            current_user = await get_current_user(request)
+    except Exception:
+        pass
     
     reviews = await db.reviews.find(
         {"place_id": place_id},
         {"_id": 0}
     ).sort("created_at", -1).to_list(limit)
+    
+    # Mask surnames for privacy (except for own reviews)
+    for review in reviews:
+        if current_user and review.get("user_id") == current_user.get("user_id"):
+            review["is_own"] = True
+        else:
+            review["is_own"] = False
+            review["user_name"] = mask_user_name(review.get("user_name", ""))
     
     return reviews
 
@@ -841,6 +888,8 @@ async def upload_photo(place_id: str, photo_data: PhotoUpload, request: Request)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 image")
     
+    photo_id = str(uuid.uuid4())
+    
     # Add photo to place
     await db.places.update_one(
         {"place_id": place_id},
@@ -850,24 +899,87 @@ async def upload_photo(place_id: str, photo_data: PhotoUpload, request: Request)
         }
     )
     
-    # Track who uploaded
+    # Track who uploaded with photo_id for deletion
     await db.photo_uploads.insert_one({
-        "photo_id": str(uuid.uuid4()),
+        "photo_id": photo_id,
         "place_id": place_id,
         "user_id": user["user_id"],
+        "user_name": user["name"],
+        "photo_index": len(place.get("photos", [])),  # index in the photos array
         "uploaded_at": datetime.now(timezone.utc)
     })
     
-    return {"message": "Photo uploaded successfully"}
+    return {"message": "Photo uploaded successfully", "photo_id": photo_id}
 
 @api_router.get("/places/{place_id}/photos")
-async def get_photos(place_id: str):
-    """Get all photos for a place"""
+async def get_photos(place_id: str, request: Request = None):
+    """Get all photos for a place with uploader info"""
     place = await db.places.find_one({"place_id": place_id}, {"_id": 0, "photos": 1})
     if not place:
         raise HTTPException(status_code=404, detail="Place not found")
     
-    return {"photos": place.get("photos", [])}
+    # Get current user if authenticated
+    current_user = None
+    try:
+        if request:
+            current_user = await get_current_user(request)
+    except Exception:
+        pass
+    
+    # Get upload info for each photo
+    uploads = await db.photo_uploads.find(
+        {"place_id": place_id},
+        {"_id": 0}
+    ).sort("uploaded_at", 1).to_list(1000)
+    
+    photos = place.get("photos", [])
+    photo_details = []
+    for i, photo in enumerate(photos):
+        detail = {"photo": photo, "index": i}
+        # Find uploader info
+        upload = next((u for u in uploads if u.get("photo_index") == i), None)
+        if upload:
+            detail["photo_id"] = upload.get("photo_id")
+            detail["user_id"] = upload.get("user_id")
+            detail["user_name"] = mask_user_name(upload.get("user_name", ""))
+            detail["uploaded_at"] = upload.get("uploaded_at")
+            if current_user and upload.get("user_id") == current_user.get("user_id"):
+                detail["is_own"] = True
+            else:
+                detail["is_own"] = False
+        photo_details.append(detail)
+    
+    return {"photos": photos, "photo_details": photo_details}
+
+@api_router.delete("/places/{place_id}/photos/{photo_id}")
+async def delete_photo(place_id: str, photo_id: str, request: Request):
+    """Delete a photo (owner or admin only)"""
+    user = await get_current_user(request)
+    
+    # Find the photo upload record
+    upload = await db.photo_uploads.find_one({"photo_id": photo_id, "place_id": place_id})
+    if not upload:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    if upload["user_id"] != user["user_id"] and not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this photo")
+    
+    photo_index = upload.get("photo_index", -1)
+    
+    # Get the place to find the actual photo data
+    place = await db.places.find_one({"place_id": place_id}, {"photos": 1})
+    if place and photo_index >= 0 and photo_index < len(place.get("photos", [])):
+        photo_to_remove = place["photos"][photo_index]
+        # Remove the photo from the array
+        await db.places.update_one(
+            {"place_id": place_id},
+            {"$pull": {"photos": photo_to_remove}}
+        )
+    
+    # Remove the upload record
+    await db.photo_uploads.delete_one({"photo_id": photo_id})
+    
+    return {"message": "Photo deleted successfully"}
 
 # ===================== WIKIPEDIA ENDPOINTS =====================
 
@@ -1404,4 +1516,49 @@ h1{color:#3498DB}h2{color:#2c3e50;margin-top:30px}p{margin:10px 0}
 
 
 # Include the router (MUST be after all routes are defined)
+
+# Profile picture update endpoint
+@api_router.put("/auth/profile/picture")
+async def update_profile_picture(request: Request):
+    try:
+        # Authenticate user
+        user = await get_current_user(request)
+        user_id = user.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        
+        body = await request.json()
+        picture = body.get("picture")
+        if not picture:
+            raise HTTPException(status_code=400, detail="Picture URL or data is required")
+        
+        # Validate base64 data URI or URL
+        if not picture.startswith("data:image/") and not picture.startswith("http"):
+            raise HTTPException(status_code=400, detail="Invalid picture format. Must be a data URI or URL.")
+        
+        # If base64 data URI is too large (>5MB), reject it
+        if picture.startswith("data:image/"):
+            # Rough size check: base64 is ~4/3 of original
+            base64_data = picture.split(",", 1)[-1] if "," in picture else picture
+            estimated_size = len(base64_data) * 3 / 4
+            if estimated_size > 5 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Image too large. Max 5MB.")
+        
+        # Update the user's picture in MongoDB
+        result = await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"picture": picture}}
+        )
+        
+        if result.modified_count == 0 and result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        logger.info(f"Profile picture updated for user {user_id}")
+        return {"success": True, "message": "Profile picture updated", "picture": picture}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Profile picture update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 app.include_router(api_router)
