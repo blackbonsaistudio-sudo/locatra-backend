@@ -106,6 +106,7 @@ class Place(BaseModel):
     facilities: List[str] = []  # lifeguard, parking, showers, etc.
     era: Optional[str] = None  # for historic places
     terrain: Optional[str] = None  # for natural places
+    continent: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class PlaceCreate(BaseModel):
@@ -1170,6 +1171,7 @@ async def seed_places():
             "facilities": p.get("facilities", []),
             "era": p.get("era"),
             "terrain": p.get("terrain"),
+            "continent": p.get("continent"),
             "created_at": now,
             **{k: v for k, v in p.items() if k in base_fields}
         }
