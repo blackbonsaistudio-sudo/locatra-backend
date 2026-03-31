@@ -1285,5 +1285,121 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/privacy-policy", response_class=HTMLResponse)
+async def privacy_policy():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locatra - Privacy Policy</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:800px;margin:0 auto;padding:20px;color:#333;line-height:1.6}
+h1{color:#3498DB}h2{color:#2c3e50;margin-top:30px}p{margin:10px 0}
+.updated{color:#666;font-style:italic}
+</style>
+</head>
+<body>
+<h1>Locatra - Privacy Policy</h1>
+<p class="updated">Last updated: March 31, 2026</p>
+
+<h2>1. Introduction</h2>
+<p>Locatra ("we", "our", or "us") is a free world explorer app that helps you discover historic landmarks, museums, waterfalls, beaches, and natural places around the world. This Privacy Policy explains how we collect, use, and protect your information.</p>
+
+<h2>2. Information We Collect</h2>
+<p><strong>Account Information:</strong> When you create an account or sign in with Google, we collect your email address and display name.</p>
+<p><strong>Usage Data:</strong> We collect anonymous usage data such as which places you view and your favorite places to improve the app experience.</p>
+<p><strong>Location Data:</strong> With your permission, we may access your device location to show nearby places. This data is processed locally and not stored on our servers.</p>
+
+<h2>3. How We Use Your Information</h2>
+<p>We use your information to:</p>
+<ul>
+<li>Provide and maintain the app</li>
+<li>Save your favorite places across devices</li>
+<li>Show relevant advertisements through Google AdMob</li>
+<li>Improve the app experience</li>
+</ul>
+
+<h2>4. Advertising</h2>
+<p>We use Google AdMob to display advertisements. AdMob may collect device identifiers and usage data to serve personalized ads. You can opt out of personalized advertising in your device settings.</p>
+
+<h2>5. Data Sharing</h2>
+<p>We do not sell your personal information. We may share data with:</p>
+<ul>
+<li>Google (for authentication and advertising services)</li>
+<li>MongoDB Atlas (for secure data storage)</li>
+</ul>
+
+<h2>6. Data Security</h2>
+<p>We use industry-standard security measures including encrypted connections (HTTPS/TLS) and secure password hashing (bcrypt) to protect your data.</p>
+
+<h2>7. Data Retention and Deletion</h2>
+<p>You can delete your account and associated data at any time by contacting us at blackbonsai.studio@gmail.com.</p>
+
+<h2>8. Children's Privacy</h2>
+<p>Locatra is not directed at children under 13. We do not knowingly collect personal information from children under 13.</p>
+
+<h2>9. Changes to This Policy</h2>
+<p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new policy in the app.</p>
+
+<h2>10. Contact Us</h2>
+<p>If you have questions about this Privacy Policy, contact us at:<br>
+<strong>Email:</strong> blackbonsai.studio@gmail.com</p>
+</body>
+</html>"""
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_of_service():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locatra - Terms of Service</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:800px;margin:0 auto;padding:20px;color:#333;line-height:1.6}
+h1{color:#3498DB}h2{color:#2c3e50;margin-top:30px}p{margin:10px 0}
+.updated{color:#666;font-style:italic}
+</style>
+</head>
+<body>
+<h1>Locatra - Terms of Service</h1>
+<p class="updated">Last updated: March 31, 2026</p>
+
+<h2>1. Acceptance of Terms</h2>
+<p>By downloading or using Locatra, you agree to be bound by these Terms of Service.</p>
+
+<h2>2. Description of Service</h2>
+<p>Locatra is a free mobile application that allows users to explore world landmarks, museums, waterfalls, beaches, and natural places on an interactive map. The service is provided free of charge and supported by advertisements.</p>
+
+<h2>3. User Accounts</h2>
+<p>You may create an account using email/password or Google Sign-In. You are responsible for maintaining the security of your account credentials.</p>
+
+<h2>4. Acceptable Use</h2>
+<p>You agree not to misuse the service, including but not limited to: submitting false or misleading place information, attempting to circumvent security measures, or using the service for any illegal purpose.</p>
+
+<h2>5. Content</h2>
+<p>Place descriptions and images are sourced from Wikipedia and Wikimedia Commons under their respective licenses. User-submitted content must be accurate and not infringe on any third-party rights.</p>
+
+<h2>6. Advertisements</h2>
+<p>Locatra displays advertisements through Google AdMob. These ads help keep the app free for all users.</p>
+
+<h2>7. Disclaimer</h2>
+<p>Locatra is provided "as is" without warranties of any kind. We do not guarantee the accuracy of place information, travel conditions, or safety at any listed location. Always verify travel information independently.</p>
+
+<h2>8. Limitation of Liability</h2>
+<p>We shall not be liable for any indirect, incidental, or consequential damages arising from your use of the app.</p>
+
+<h2>9. Changes to Terms</h2>
+<p>We reserve the right to modify these terms at any time. Continued use of the app constitutes acceptance of modified terms.</p>
+
+<h2>10. Contact</h2>
+<p>For questions about these terms, contact us at:<br>
+<strong>Email:</strong> blackbonsai.studio@gmail.com</p>
+</body>
+</html>"""
+
+
 # Include the router (MUST be after all routes are defined)
 app.include_router(api_router)
