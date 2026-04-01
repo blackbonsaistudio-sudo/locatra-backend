@@ -374,7 +374,9 @@ async def register(user_data: UserCreate, response: Response):
         "auth_type": "email",
         "favorites": [],
         "is_admin": user_doc["is_admin"],
-        "created_at": user_doc["created_at"]
+        "created_at": user_doc["created_at"],
+        "access_token": access_token,
+        "refresh_token": refresh_token,
     }
 
 @api_router.post("/auth/login")
@@ -407,6 +409,8 @@ async def login(user_data: UserLogin, response: Response):
     
     user.pop("password_hash", None)
     user["is_admin"] = email.lower() in [e.lower() for e in ADMIN_EMAILS]
+    user["access_token"] = access_token
+    user["refresh_token"] = refresh_token
     return user
 
 @api_router.post("/auth/session")
@@ -789,13 +793,14 @@ async def get_reviews(place_id: str, limit: int = 50, request: Request = None):
         {"_id": 0}
     ).sort("created_at", -1).to_list(limit)
     
-    # Mask surnames for privacy (except for own reviews)
+    # Mask surnames for privacy for ALL reviews
     for review in reviews:
         if current_user and review.get("user_id") == current_user.get("user_id"):
             review["is_own"] = True
         else:
             review["is_own"] = False
-            review["user_name"] = mask_user_name(review.get("user_name", ""))
+        # Always mask surname for privacy
+        review["user_name"] = mask_user_name(review.get("user_name", ""))
     
     return reviews
 
@@ -1753,3 +1758,59 @@ async def get_collection_places(collection_id: str, request: Request):
     return places
 
 app.include_router(api_router)
+
+# ===== User Activity Endpoints =====
+@api_router.get("/user/reviews")
+async def get_user_reviews(request: Request):
+    """Get all reviews by the current user"""
+    user = await get_current_user(request)
+    reviews = await db.reviews.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    # Add place name to each review
+    for review in reviews:
+        place = await db.places.find_one({"place_id": review["place_id"]}, {"name": 1, "country": 1})
+        if place:
+            review["place_name"] = place.get("name", "Unknown")
+            review["place_country"] = place.get("country", "")
+        review["user_name"] = mask_user_name(review.get("user_name", ""))
+    
+    return reviews
+
+@api_router.get("/user/photos")
+async def get_user_photos(request: Request):
+    """Get all photos uploaded by the current user"""
+    user = await get_current_user(request)
+    uploads = await db.photo_uploads.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("uploaded_at", -1).to_list(500)
+    
+    # Add place name and photo data
+    for upload in uploads:
+        place = await db.places.find_one({"place_id": upload["place_id"]}, {"name": 1, "photos": 1})
+        if place:
+            upload["place_name"] = place.get("name", "Unknown")
+            photos = place.get("photos", [])
+            idx = upload.get("photo_index", 0)
+            upload["photo_url"] = photos[idx] if idx < len(photos) else None
+    
+    return uploads
+
+@api_router.get("/user/stats")
+async def get_user_stats(request: Request):
+    """Get user activity stats"""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    
+    favorites_count = len(user.get("favorites", []))
+    reviews_count = await db.reviews.count_documents({"user_id": uid})
+    photos_count = await db.photo_uploads.count_documents({"user_id": uid})
+    
+    return {
+        "favorites": favorites_count,
+        "reviews": reviews_count,
+        "photos": photos_count,
+    }
