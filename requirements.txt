@@ -22,4 +22,3 @@ annotated-types==0.7.0
 anyio==4.13.0
 click==8.3.1
 typing-inspection==0.4.2
-emergentintegrations==0.1.0
