@@ -157,7 +157,17 @@ class WikipediaSearch(BaseModel):
     query: str
 
 class SubscriptionRequest(BaseModel):
-    plan: str = "monthly"  # currently only monthly
+    plan: str
+
+class CollectionCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    icon: Optional[str] = "folder"
+
+class CollectionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
 
 # ===================== AUTH HELPERS =====================
 
@@ -1641,5 +1651,97 @@ async def update_profile_picture(request: Request):
     except Exception as e:
         logger.error(f"Profile picture update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ===== Collections (Trip Lists) =====
+
+@api_router.get("/collections")
+async def get_collections(request: Request):
+    """Get user's favorite collections"""
+    user = await get_current_user(request)
+    collections = await db.collections.find({"user_id": user["user_id"]}).to_list(100)
+    for c in collections:
+        c["_id"] = str(c["_id"])
+        # Count places in collection
+        c["place_count"] = len(c.get("place_ids", []))
+    return collections
+
+@api_router.post("/collections")
+async def create_collection(data: CollectionCreate, request: Request):
+    """Create a new collection"""
+    user = await get_current_user(request)
+    collection = {
+        "collection_id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "name": data.name,
+        "description": data.description or "",
+        "icon": data.icon or "folder",
+        "place_ids": [],
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.collections.insert_one(collection)
+    collection["_id"] = str(collection["_id"])
+    collection["place_count"] = 0
+    return collection
+
+@api_router.post("/collections/{collection_id}/places/{place_id}")
+async def add_place_to_collection(collection_id: str, place_id: str, request: Request):
+    """Add a place to a collection"""
+    user = await get_current_user(request)
+    result = await db.collections.update_one(
+        {"collection_id": collection_id, "user_id": user["user_id"]},
+        {
+            "$addToSet": {"place_ids": place_id},
+            "$set": {"updated_at": datetime.now(timezone.utc)}
+        }
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"message": "Place added to collection"}
+
+@api_router.delete("/collections/{collection_id}/places/{place_id}")
+async def remove_place_from_collection(collection_id: str, place_id: str, request: Request):
+    """Remove a place from a collection"""
+    user = await get_current_user(request)
+    result = await db.collections.update_one(
+        {"collection_id": collection_id, "user_id": user["user_id"]},
+        {
+            "$pull": {"place_ids": place_id},
+            "$set": {"updated_at": datetime.now(timezone.utc)}
+        }
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"message": "Place removed from collection"}
+
+@api_router.delete("/collections/{collection_id}")
+async def delete_collection(collection_id: str, request: Request):
+    """Delete a collection"""
+    user = await get_current_user(request)
+    result = await db.collections.delete_one(
+        {"collection_id": collection_id, "user_id": user["user_id"]}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"message": "Collection deleted"}
+
+@api_router.get("/collections/{collection_id}/places")
+async def get_collection_places(collection_id: str, request: Request):
+    """Get all places in a collection"""
+    user = await get_current_user(request)
+    collection = await db.collections.find_one(
+        {"collection_id": collection_id, "user_id": user["user_id"]}
+    )
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    place_ids = collection.get("place_ids", [])
+    if not place_ids:
+        return []
+    
+    places = await db.places.find({"place_id": {"$in": place_ids}}).to_list(500)
+    for p in places:
+        p["_id"] = str(p["_id"])
+    return places
 
 app.include_router(api_router)
