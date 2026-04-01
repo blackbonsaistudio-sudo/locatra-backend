@@ -1417,6 +1417,56 @@ async def analytics_summary(current_user: dict = Depends(get_current_user)):
     }
 
 
+@api_router.get("/analytics/insights")
+async def analytics_insights():
+    """Get public analytics insights - most popular places, categories, etc."""
+    try:
+        # Most viewed places (top 10)
+        top_places_pipeline = [
+            {"$match": {"event_type": "place_view"}},
+            {"$group": {"_id": "$place_id", "views": {"$sum": 1}, "name": {"$first": "$metadata.name"}, "category": {"$first": "$category"}}},
+            {"$sort": {"views": -1}},
+            {"$limit": 10}
+        ]
+        top_places = await db.analytics.aggregate(top_places_pipeline).to_list(10)
+        
+        # Most popular categories
+        cat_pipeline = [
+            {"$match": {"event_type": "category_filter"}},
+            {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        top_categories = await db.analytics.aggregate(cat_pipeline).to_list(20)
+        
+        # Most searched terms
+        search_pipeline = [
+            {"$match": {"event_type": "search"}},
+            {"$group": {"_id": "$metadata.query", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ]
+        top_searches = await db.analytics.aggregate(search_pipeline).to_list(10)
+        
+        # Total unique places count
+        total_places = await db.places.count_documents({})
+        total_reviews = await db.reviews.count_documents({})
+        total_users = await db.users.count_documents({})
+        
+        return {
+            "top_places": [{"place_id": p["_id"], "name": p.get("name", "Unknown"), "views": p["views"]} for p in top_places],
+            "top_categories": [{"category": c["_id"], "count": c["count"]} for c in top_categories],
+            "top_searches": [{"query": s["_id"], "count": s["count"]} for s in top_searches if s["_id"]],
+            "totals": {
+                "places": total_places,
+                "reviews": total_reviews,
+                "users": total_users,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Analytics insights error: {e}")
+        return {"top_places": [], "top_categories": [], "top_searches": [], "totals": {}}
+
+
 # Root endpoint
 @api_router.get("/")
 async def root():
