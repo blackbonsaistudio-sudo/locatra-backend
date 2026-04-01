@@ -16,7 +16,15 @@ import base64
 from seed_data import FREE_PLACES, PREMIUM_UNESCO_PLACES
 from seed_beaches import BLUE_FLAG_BEACHES
 from seed_hidden_gems import HIDDEN_GEMS
-from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+
+# Optional: AI image moderation (graceful fallback if not available)
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    HAS_MODERATION = True
+except ImportError:
+    HAS_MODERATION = False
+    logger = logging.getLogger("server")
+    logger.warning("emergentintegrations not available - image moderation disabled")
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -902,7 +910,7 @@ async def upload_photo(place_id: str, photo_data: PhotoUpload, request: Request)
     # AI Content Moderation using OpenAI Vision
     try:
         llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
-        if llm_key:
+        if llm_key and HAS_MODERATION:
             moderation_chat = LlmChat(
                 api_key=llm_key,
                 session_id=f"moderation-{uuid.uuid4()}",
